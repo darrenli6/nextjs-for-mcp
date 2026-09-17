@@ -2,11 +2,29 @@
 
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
+
+const ACCESS_TOKEN_STORAGE_KEY = 'access_token';
+
+function subscribeToAccessToken(callback: () => void) {
+  window.addEventListener('access-token-change', callback);
+  return () => window.removeEventListener('access-token-change', callback);
+}
+
+function getAccessToken() {
+  return window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? '';
+}
+
+function getServerAccessToken() {
+  return '';
+}
 
 export default function Home() {
-  const [accessToken, setAccessToken] = useState('');
-  const [tokenReady, setTokenReady] = useState(false);
+  const accessToken = useSyncExternalStore(
+    subscribeToAccessToken,
+    getAccessToken,
+    getServerAccessToken,
+  );
   const [input, setInput] = useState('');
   const transport = useMemo(
     () =>
@@ -24,14 +42,13 @@ export default function Home() {
   });
   const isLoading = status === 'submitted' || status === 'streaming';
 
-  useEffect(() => {
-    setAccessToken(window.localStorage.getItem('access_token') ?? '');
-    setTokenReady(true);
-  }, []);
-
   function handleAccessTokenChange(value: string) {
-    setAccessToken(value);
-    window.localStorage.setItem('access_token', value);
+    if (value) {
+      window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, value);
+    } else {
+      window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    }
+    window.dispatchEvent(new Event('access-token-change'));
   }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -53,7 +70,7 @@ export default function Home() {
           onChange={(event) => handleAccessTokenChange(event.target.value)}
           placeholder="Enter ACCESS_TOKEN"
           className="flex-1 p-3 border rounded-lg"
-          disabled={!tokenReady || isLoading}
+          disabled={isLoading}
           autoComplete="off"
         />
         <button
@@ -66,7 +83,7 @@ export default function Home() {
         </button>
       </div>
 
-      {!accessToken && tokenReady && (
+      {!accessToken && (
         <p className="mb-4 text-sm text-amber-700">
           Enter an access token before sending a message.
         </p>

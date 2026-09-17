@@ -83,6 +83,7 @@ app/
 └── api/
     ├── chat/route.ts        # AI chat endpoint and tool execution entry point
     ├── hello/route.ts       # Hello example endpoint
+    ├── mcp/route.ts         # Production Streamable HTTP MCP endpoint
     ├── social/route.ts       # Social media transcript endpoint
     └── users/route.ts       # Example users endpoint
 lib/
@@ -117,6 +118,17 @@ Request body:
   "lang": "en"
 }
 ```
+
+### `GET|POST|DELETE /mcp`
+
+Production Streamable HTTP MCP endpoint. Configure your MCP client with:
+
+```text
+URL: https://your-domain.com/mcp
+Authorization: Bearer your_internal_access_token
+```
+
+The endpoint exposes the application tools, including `get_social_transcript`, `get_users`, `calculate`, and `get_current_time`.
 
 The `lang` field is optional. Example response:
 
@@ -161,7 +173,7 @@ The project already includes a `get_social_transcript` tool. It accepts a URL an
 ## Deployment Notes
 
 - Configure `OPENAI_API_KEY` in production.
-- Configure `ACCESS_TOKEN` to protect `POST /api/chat`.
+- Configure `ACCESS_TOKEN` to protect `/api/chat` and `/mcp`.
 - Configure `SUPADATA_API_KEY` to enable social media transcript extraction.
 - Make sure `OPENAI_BASE_URL` and `OPENAI_MODEL` are supported by your model gateway.
 - When deploying to Railway, Render, or a similar platform, set `APP_URL` to the public URL of the deployed application.
