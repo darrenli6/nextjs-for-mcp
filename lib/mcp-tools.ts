@@ -59,6 +59,33 @@ export const mcpTools = {
     },
   }),
 
+  get_social_transcript: tool({
+    description:
+      'Get a plain-text transcript from a YouTube, TikTok, Instagram, X, or Facebook URL',
+    inputSchema: z.object({
+      url: z.string().url().describe('Supported social media or video URL'),
+      lang: z
+        .string()
+        .optional()
+        .describe('Optional transcript language, such as en or zh'),
+    }),
+    execute: async ({ url, lang }) => {
+      const response = await fetch(`${APP_URL}/api/social`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, lang }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Failed to fetch social transcript');
+      }
+
+      return data;
+    },
+  }),
+
   get_users: tool({
     description: 'Get list of users',
     inputSchema: z.object({}),

@@ -2,18 +2,41 @@
 
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export default function Home() {
-  const { messages, sendMessage, status } = useChat({
-    transport: new DefaultChatTransport({ api: '/api/chat' }),
-  });
+  const [accessToken, setAccessToken] = useState('');
+  const [tokenReady, setTokenReady] = useState(false);
   const [input, setInput] = useState('');
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: '/api/chat',
+        headers: (): Record<string, string> =>
+          accessToken
+            ? { Authorization: `Bearer ${accessToken}` }
+            : {},
+      }),
+    [accessToken],
+  );
+  const { messages, sendMessage, status } = useChat({
+    transport,
+  });
   const isLoading = status === 'submitted' || status === 'streaming';
+
+  useEffect(() => {
+    setAccessToken(window.localStorage.getItem('access_token') ?? '');
+    setTokenReady(true);
+  }, []);
+
+  function handleAccessTokenChange(value: string) {
+    setAccessToken(value);
+    window.localStorage.setItem('access_token', value);
+  }
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || !accessToken) return;
 
     sendMessage({ text: input });
     setInput('');
@@ -22,6 +45,32 @@ export default function Home() {
   return (
     <div className="flex flex-col h-screen max-w-2xl mx-auto p-4">
       <h1 className="text-3xl font-bold mb-4">Hello World MCP Chat</h1>
+
+      <div className="mb-4 flex gap-2">
+        <input
+          type="password"
+          value={accessToken}
+          onChange={(event) => handleAccessTokenChange(event.target.value)}
+          placeholder="Enter ACCESS_TOKEN"
+          className="flex-1 p-3 border rounded-lg"
+          disabled={!tokenReady || isLoading}
+          autoComplete="off"
+        />
+        <button
+          type="button"
+          onClick={() => handleAccessTokenChange('')}
+          className="px-4 py-3 border rounded-lg"
+          disabled={!accessToken || isLoading}
+        >
+          Clear
+        </button>
+      </div>
+
+      {!accessToken && tokenReady && (
+        <p className="mb-4 text-sm text-amber-700">
+          Enter an access token before sending a message.
+        </p>
+      )}
       
       {/* Messages */}
       <div className="flex-1 overflow-y-auto mb-4 space-y-4">
@@ -69,11 +118,11 @@ export default function Home() {
           onChange={(event) => setInput(event.target.value)}
           placeholder="Ask me anything..."
           className="flex-1 p-3 border rounded-lg"
-          disabled={isLoading}
+          disabled={isLoading || !accessToken}
         />
         <button
           type="submit"
-          disabled={isLoading}
+          disabled={isLoading || !accessToken}
           className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
         >
           Send

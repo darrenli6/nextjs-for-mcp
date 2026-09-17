@@ -7,12 +7,14 @@ A streaming AI chat application built with Next.js App Router, AI SDK, and an Op
 - Streaming AI chat interface
 - AI SDK 7 `useChat` integration
 - OpenAI-compatible API gateway support
+- Social media transcript extraction through Supadata
 - Built-in tools for:
   - Fetching a hello message
   - Getting the current time
   - Returning example weather data
   - Performing basic arithmetic
   - Fetching an example user list
+  - Extracting transcripts from YouTube, TikTok, Instagram, X, and Facebook URLs
 - Next.js built-in MCP development server at `/_next/mcp`
 
 ## Tech Stack
@@ -42,6 +44,8 @@ Create a `.env` or `.env.local` file in the project root:
 OPENAI_API_KEY=your_api_key
 OPENAI_BASE_URL=https://your-compatible-gateway.example.com/v1
 OPENAI_MODEL=gpt-4o-mini
+ACCESS_TOKEN=your_internal_access_token
+SUPADATA_API_KEY=your_supadata_api_key
 
 # Optional for local development. Defaults to http://localhost:3000.
 APP_URL=http://localhost:3000
@@ -79,6 +83,7 @@ app/
 └── api/
     ├── chat/route.ts        # AI chat endpoint and tool execution entry point
     ├── hello/route.ts       # Hello example endpoint
+    ├── social/route.ts       # Social media transcript endpoint
     └── users/route.ts       # Example users endpoint
 lib/
 ├── config.ts                # Server-side configuration such as APP_URL
@@ -90,7 +95,7 @@ next.config.ts               # Turbopack and Next.js MCP configuration
 
 ### `POST /api/chat`
 
-Accepts AI SDK UI messages and returns a streaming response. The endpoint uses the model configured by `OPENAI_MODEL` and registers the tools from `lib/mcp-tools.ts`.
+Accepts AI SDK UI messages and returns a streaming response. The endpoint requires `Authorization: Bearer <ACCESS_TOKEN>`, uses the model configured by `OPENAI_MODEL`, and registers the tools from `lib/mcp-tools.ts`.
 
 ### `GET /api/hello`
 
@@ -99,6 +104,29 @@ Returns example hello data.
 ### `GET /api/users`
 
 Returns an example user list.
+
+### `POST /api/social`
+
+Extracts a plain-text transcript from a supported social media or video URL using Supadata.
+
+Request body:
+
+```json
+{
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "lang": "en"
+}
+```
+
+The `lang` field is optional. Example response:
+
+```json
+{
+  "content": "Transcript text...",
+  "lang": "en",
+  "availableLangs": ["en", "es", "zh-TW"]
+}
+```
 
 ## Adding a Tool
 
@@ -121,12 +149,23 @@ const exampleTool = tool({
 
 Add the tool to the exported `mcpTools` object and the model can call it during a conversation.
 
+The project already includes a `get_social_transcript` tool. It accepts a URL and an optional language, then calls `POST /api/social` internally:
+
+```json
+{
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "lang": "en"
+}
+```
+
 ## Deployment Notes
 
 - Configure `OPENAI_API_KEY` in production.
+- Configure `ACCESS_TOKEN` to protect `POST /api/chat`.
+- Configure `SUPADATA_API_KEY` to enable social media transcript extraction.
 - Make sure `OPENAI_BASE_URL` and `OPENAI_MODEL` are supported by your model gateway.
 - When deploying to Railway, Render, or a similar platform, set `APP_URL` to the public URL of the deployed application.
-- `APP_URL` is used by server-side tools to access the `/api/hello` and `/api/users` endpoints.
+- `APP_URL` is used by server-side tools to access the `/api/hello`, `/api/social`, and `/api/users` endpoints.
 - Never commit `.env`, API keys, or other secrets to Git.
 
 ## Related Documentation
