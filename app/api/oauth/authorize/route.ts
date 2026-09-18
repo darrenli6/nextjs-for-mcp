@@ -1,5 +1,5 @@
 import { prisma } from '@/app/prisma';
-import { getGoogleCallbackUrl, jsonError, randomToken } from '@/lib/oauth';
+import { getAppUrl, jsonError, randomToken } from '@/lib/oauth';
 
 export const runtime = 'nodejs';
 
@@ -29,6 +29,10 @@ export async function GET(request: Request) {
     return jsonError('invalid_client_or_redirect_uri', 400);
   }
 
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return jsonError('Google OAuth is not configured', 500);
+  }
+
   const state = randomToken(32);
 
   await prisma.oAuthRequest.create({
@@ -44,18 +48,9 @@ export async function GET(request: Request) {
     },
   });
 
-  const googleUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  googleUrl.searchParams.set('client_id', process.env.GOOGLE_CLIENT_ID ?? '');
-  googleUrl.searchParams.set('redirect_uri', getGoogleCallbackUrl(request));
-  googleUrl.searchParams.set('response_type', 'code');
-  googleUrl.searchParams.set('scope', 'openid profile email');
-  googleUrl.searchParams.set('state', state);
-  googleUrl.searchParams.set('access_type', 'online');
-  googleUrl.searchParams.set('prompt', 'select_account');
+  const authPage = new URL(`${getAppUrl(request)}/auth`);
+  authPage.searchParams.set('state', state);
+  authPage.searchParams.set('client_name', client.name || 'MCP client');
 
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    return jsonError('Google OAuth is not configured', 500);
-  }
-
-  return Response.redirect(googleUrl);
+  return Response.redirect(authPage);
 }
