@@ -2,6 +2,7 @@ import { Supadata } from '@supadata/js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { APP_URL } from '@/lib/config';
+import { downloadSocialResource, translateImageToChinese } from '@/lib/mcp-tools';
 
 function textResult(value: unknown) {
   return {
@@ -117,6 +118,30 @@ export function createMcpServer() {
       });
       return textResult(await response.json());
     },
+  );
+
+  server.registerTool(
+    'download_social_resource',
+    {
+      description:
+        'Resolve a YouTube, TikTok, Instagram, Facebook, or X URL into downloadable media resource links',
+      inputSchema: z.object({ url: z.string().url() }),
+    },
+    async ({ url }) => textResult(await downloadSocialResource(url)),
+  );
+
+  server.registerTool(
+    'translate_image_to_chinese',
+    {
+      description:
+        'Resolve a social media URL with ZM, select its image, translate the visible text into Simplified Chinese with KIE, poll until complete, and return the generated image URL',
+      inputSchema: z.object({
+        url: z.string().url(),
+        prompt: z.string().optional(),
+      }),
+    },
+    async ({ url, prompt }) =>
+      textResult(await translateImageToChinese(url, prompt)),
   );
 
   return server;
