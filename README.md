@@ -49,6 +49,10 @@ SUPADATA_API_KEY=your_supadata_api_key
 
 # Optional for local development. Defaults to http://localhost:3000.
 APP_URL=http://localhost:3000
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+DATABASE_URL=postgresql://user:password@host:5432/database?sslmode=require
+AUTH_SECRET=replace_with_a_long_random_secret
 ```
 
 `OPENAI_BASE_URL` should point to the base URL of an OpenAI-compatible API. It usually includes `/v1`. For the official OpenAI API, use:
@@ -130,6 +134,16 @@ Authorization: Bearer your_internal_access_token
 
 The endpoint exposes the application tools, including `get_social_transcript`, `get_users`, `calculate`, and `get_current_time`.
 
+OAuth discovery endpoints:
+
+```text
+/.well-known/oauth-protected-resource/mcp
+/.well-known/oauth-authorization-server
+/api/oauth/register
+/api/oauth/authorize
+/api/oauth/token
+```
+
 The `lang` field is optional. Example response:
 
 ```json
@@ -174,6 +188,10 @@ The project already includes a `get_social_transcript` tool. It accepts a URL an
 
 - Configure `OPENAI_API_KEY` in production.
 - Configure `ACCESS_TOKEN` to protect `/api/chat` and `/mcp`.
+- Configure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` for Google sign-in.
+- Configure `DATABASE_URL` for the PostgreSQL database and run `npm run db:migrate` during deployment.
+- Add this Google OAuth redirect URI to the Google Cloud OAuth client:
+  `https://your-domain.com/api/oauth/google/callback`
 - Configure `SUPADATA_API_KEY` to enable social media transcript extraction.
 - Make sure `OPENAI_BASE_URL` and `OPENAI_MODEL` are supported by your model gateway.
 - When deploying to Railway, Render, or a similar platform, set `APP_URL` to the public URL of the deployed application.

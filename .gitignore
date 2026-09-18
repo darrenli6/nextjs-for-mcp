@@ -12,9 +12,10 @@
 
 # testing
 /coverage
-
+.next
 # next.js
 /.next/
+/src/generated/
 /out/
 
 # production
