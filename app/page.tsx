@@ -26,6 +26,7 @@ export default function Home() {
     getServerAccessToken,
   );
   const [input, setInput] = useState('');
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -59,6 +60,16 @@ export default function Home() {
     setInput('');
   }
 
+  async function handleCopy(messageId: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMessageId(messageId);
+      window.setTimeout(() => setCopiedMessageId(null), 1500);
+    } catch {
+      setCopiedMessageId(null);
+    }
+  }
+
   return (
     <div className="flex flex-col h-screen max-w-2xl mx-auto p-4">
       <h1 className="text-3xl font-bold mb-4">Hello World MCP Chat</h1>
@@ -89,37 +100,58 @@ export default function Home() {
         </p>
       )}
       
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto mb-4 space-y-4">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`p-4 rounded-lg ${
-              message.role === 'user'
-                ? 'bg-blue-500 text-white ml-auto'
-                : 'bg-gray-200 text-black'
-            } max-w-[80%]`}
-          >
-            <p className="font-semibold mb-1">
-              {message.role === 'user' ? 'You' : 'AI'}
-            </p>
-            {message.parts.map((part, index) => {
-              if (part.type === 'text') {
-                return <p key={index}>{part.text}</p>;
-              }
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto mb-4 space-y-4">
+          {messages.map((message) => (
+            (() => {
+              const textContent = message.parts
+                .filter((part) => part.type === 'text')
+                .map((part) => (part.type === 'text' ? part.text : ''))
+                .join('\n');
 
-              if (part.type.startsWith('tool-')) {
-                return (
-                  <p key={index} className="mt-2 text-xs opacity-75">
-                    🔧 Used tool: {part.type.replace('tool-', '')}
+              return (
+                <div
+                  key={message.id}
+                  className={`p-4 rounded-lg ${
+                    message.role === 'user'
+                      ? 'bg-blue-500 text-white ml-auto'
+                      : 'bg-gray-200 text-black'
+                  } max-w-[80%]`}
+                >
+                  <p className="font-semibold mb-1">
+                    {message.role === 'user' ? 'You' : 'AI'}
                   </p>
-                );
-              }
+                  {message.parts.map((part, index) => {
+                    if (part.type === 'text') {
+                      return <p key={index}>{part.text}</p>;
+                    }
 
-              return null;
-            })}
-          </div>
-        ))}
+                    if (part.type.startsWith('tool-')) {
+                      return (
+                        <p key={index} className="mt-2 text-xs opacity-75">
+                          🔧 Used tool: {part.type.replace('tool-', '')}
+                        </p>
+                      );
+                    }
+
+                    return null;
+                  })}
+                  {message.role !== 'user' && textContent && (
+                    <div className="mt-3 flex justify-start">
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(message.id, textContent)}
+                        className="rounded-md border border-gray-400 px-2 py-1 text-xs text-gray-700 transition hover:bg-gray-300"
+                        aria-label="Copy AI response"
+                      >
+                        {copiedMessageId === message.id ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()
+          ))}
         
         {isLoading && (
           <div className="bg-gray-200 text-black p-4 rounded-lg">
