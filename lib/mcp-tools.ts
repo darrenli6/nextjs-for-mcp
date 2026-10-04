@@ -400,6 +400,33 @@ export function createMcpTools(
     },
   }),
 
+  batch_translate_images_to_chinese: tool({
+    description:
+      'Accept multiple image or social media URLs, download each image, translate all visible text into Simplified Chinese with KIE, and return the generated image URLs for every input',
+    inputSchema: z.object({
+      urls: z
+        .array(z.string().url())
+        .min(1)
+        .max(20)
+        .describe('List of image URLs or social media URLs (max 20)'),
+      prompt: z
+        .string()
+        .optional()
+        .describe('Optional image editing prompt; defaults to Simplified Chinese translation'),
+    }),
+    execute: async ({ urls, prompt }) => {
+      const results = await Promise.allSettled(
+        urls.map((url) => translateImageToChinese(url, prompt, onTranslationProgress)),
+      );
+
+      return results.map((r, i) =>
+        r.status === 'fulfilled'
+          ? { url: urls[i], success: true, ...r.value }
+          : { url: urls[i], success: false, error: String((r as PromiseRejectedResult).reason) },
+      );
+    },
+  }),
+
   analyze_video_content: tool({
     description:
       'Fetch the transcript from a YouTube or TikTok URL, translate it to Chinese, summarize the content, analyze its business value, and optionally answer a specific user question about the video.',

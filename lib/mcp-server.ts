@@ -147,6 +147,35 @@ export function createMcpServer() {
   );
 
   server.registerTool(
+    'batch_translate_images_to_chinese',
+    {
+      description:
+        'Accept multiple image or social media URLs, download each image, translate all visible text into Simplified Chinese with KIE, and return the generated image URLs for every input',
+      inputSchema: z.object({
+        urls: z
+          .array(z.string().url())
+          .min(1)
+          .max(20)
+          .describe('List of image URLs or social media URLs (max 20)'),
+        prompt: z.string().optional(),
+      }),
+    },
+    async ({ urls, prompt }) => {
+      const results = await Promise.allSettled(
+        urls.map((url) => translateImageToChinese(url, prompt)),
+      );
+
+      return textResult(
+        results.map((r, i) =>
+          r.status === 'fulfilled'
+            ? { url: urls[i], success: true, ...r.value }
+            : { url: urls[i], success: false, error: String((r as PromiseRejectedResult).reason) },
+        ),
+      );
+    },
+  );
+
+  server.registerTool(
     'analyze_video_content',
     {
       description:
