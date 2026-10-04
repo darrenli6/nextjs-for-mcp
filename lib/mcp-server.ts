@@ -1,3 +1,5 @@
+import { generateText } from 'ai';
+import { openai } from '@ai-sdk/openai';
 import { Supadata } from '@supadata/js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
@@ -142,6 +144,66 @@ export function createMcpServer() {
     },
     async ({ url, prompt }) =>
       textResult(await translateImageToChinese(url, prompt)),
+  );
+
+  server.registerTool(
+    'analyze_video_content',
+    {
+      description:
+        'Fetch the transcript from a YouTube or TikTok URL, translate it to Chinese, summarize the content, analyze its business value, and optionally answer a specific user question about the video.',
+      inputSchema: z.object({
+        url: z.string().url(),
+        question: z.string().optional(),
+      }),
+    },
+    async ({ url, question }) => {
+      const apiKey = process.env.SUPADATA_API_KEY;
+      if (!apiKey) throw new Error('SUPADATA_API_KEY is not configured');
+
+      const supadata = new Supadata({ apiKey });
+      const transcriptResult = await supadata.transcript({
+        url,
+        text: true,
+        mode: 'auto',
+      });
+
+      const rawText =
+        typeof transcriptResult === 'object' &&
+        transcriptResult !== null &&
+        'text' in transcriptResult
+          ? String((transcriptResult as { text: unknown }).text)
+          : JSON.stringify(transcriptResult);
+
+      const userQuestionSection = question
+        ? `\n\n## 五、用户问题\n用户的具体问题：「${question}」\n请根据视频内容，用中文详细回答此问题。`
+        : '';
+
+      const prompt = `你是一位专业的视频内容分析师。以下是一段视频的原始字幕文本，请完成以下任务并全部用**简体中文**回复：
+
+## 一、中文字幕
+将以下字幕翻译/整理为流畅的中文（如原文已是中文则直接整理）：
+
+<transcript>
+${rawText.slice(0, 8000)}
+</transcript>
+
+## 二、内容摘要
+用3-5句话概括视频的核心内容和主要观点。
+
+## 三、商业价值分析
+从以下维度分析该视频的商业价值：
+- 目标受众
+- 核心卖点或传递的商业信息
+- 可借鉴的营销策略或商业模式
+- 潜在的商业机会或风险${userQuestionSection}`;
+
+      const { text: analysis } = await generateText({
+        model: openai.chat(process.env.OPENAI_MODEL ?? 'gpt-4o-mini'),
+        prompt,
+      });
+
+      return textResult({ url, rawTranscriptLength: rawText.length, analysis });
+    },
   );
 
   return server;

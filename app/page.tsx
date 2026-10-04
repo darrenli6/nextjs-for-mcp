@@ -336,15 +336,19 @@ export default function Home() {
                       </ReactMarkdown>
                     </div>
                   )}
-                  {message.role !== 'user' && textContent && (
+                  {textContent && (
                     <div className="mt-3 flex justify-start">
                       <button
                         type="button"
                         onClick={() => handleCopy(message.id, textContent)}
-                        className="rounded-md border border-gray-400 px-2 py-1 text-xs text-gray-700 transition hover:bg-gray-300"
-                        aria-label="Copy AI response"
+                        className={`rounded-md border px-2 py-1 text-xs transition ${
+                          message.role === 'user'
+                            ? 'border-blue-300 text-blue-100 hover:bg-blue-400'
+                            : 'border-gray-400 text-gray-700 hover:bg-gray-300'
+                        }`}
+                        aria-label="Copy message"
                       >
-                        {copiedMessageId === message.id ? 'Copied' : 'Copy'}
+                        {copiedMessageId === message.id ? '已复制' : '复制'}
                       </button>
                     </div>
                   )}
