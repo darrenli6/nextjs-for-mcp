@@ -136,15 +136,105 @@ function ImageGrid({ imageUrls }: { imageUrls: string[] }) {
 
 // ─── Tool result panels ───────────────────────────────────────────────────────
 
+type SocialContent = { title?: string; description?: string; hashtags?: string[] };
+
+function parseSocial(output: unknown): SocialContent | null {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return null;
+  const o = output as Record<string, unknown>;
+  const s = o.social;
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+  return s as SocialContent;
+}
+
+function SocialCard({ social, index }: { social: SocialContent; index?: number }) {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  function copyText(key: string, text: string) {
+    navigator.clipboard.writeText(text).catch(() => null);
+    setCopied(key);
+    setTimeout(() => setCopied(null), 1500);
+  }
+
+  const hashtagLine = (social.hashtags ?? []).map((t) => `#${t}`).join(' ');
+  const prefix = index !== undefined ? `图片 ${index + 1} ` : '';
+
+  return (
+    <div className="mt-2 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 space-y-2 text-xs text-violet-900">
+      <p className="font-semibold text-violet-700">{prefix}社媒内容</p>
+
+      {social.title && (
+        <div className="flex items-start gap-1.5">
+          <span className="shrink-0 font-medium w-14">标题</span>
+          <span className="flex-1 break-words">{social.title}</span>
+          <button
+            type="button"
+            onClick={() => copyText('title', social.title!)}
+            className="shrink-0 rounded border border-violet-300 px-1.5 py-0.5 hover:bg-violet-200 transition-colors"
+          >
+            {copied === 'title' ? '✓' : '复制'}
+          </button>
+        </div>
+      )}
+
+      {social.description && (
+        <div className="flex items-start gap-1.5">
+          <span className="shrink-0 font-medium w-14">描述</span>
+          <span className="flex-1 break-words leading-relaxed">{social.description}</span>
+          <button
+            type="button"
+            onClick={() => copyText('desc', social.description!)}
+            className="shrink-0 rounded border border-violet-300 px-1.5 py-0.5 hover:bg-violet-200 transition-colors"
+          >
+            {copied === 'desc' ? '✓' : '复制'}
+          </button>
+        </div>
+      )}
+
+      {hashtagLine && (
+        <div className="flex items-start gap-1.5">
+          <span className="shrink-0 font-medium w-14">Hashtag</span>
+          <span className="flex-1 break-words text-violet-600">{hashtagLine}</span>
+          <button
+            type="button"
+            onClick={() => copyText('tags', hashtagLine)}
+            className="shrink-0 rounded border border-violet-300 px-1.5 py-0.5 hover:bg-violet-200 transition-colors"
+          >
+            {copied === 'tags' ? '✓' : '复制'}
+          </button>
+        </div>
+      )}
+
+      {/* One-click copy everything */}
+      <button
+        type="button"
+        onClick={() =>
+          copyText(
+            'all',
+            [social.title, social.description, hashtagLine].filter(Boolean).join('\n\n'),
+          )
+        }
+        className="w-full rounded border border-violet-300 px-2 py-1 text-center hover:bg-violet-200 transition-colors font-medium"
+      >
+        {copied === 'all' ? '已全部复制 ✓' : '一键复制全部'}
+      </button>
+    </div>
+  );
+}
+
 function TranslateToolResult({ output, label }: { output: unknown; label: string }) {
   const imageUrls = collectImageUrls(output);
+  const social = parseSocial(output);
+
   return (
-    <details className="my-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+    <details className="my-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900" open={imageUrls.length > 0}>
       <summary className="cursor-pointer font-medium">
         {imageUrls.length > 0 ? label : '图片翻译工具结果'}
       </summary>
       {imageUrls.length > 0 ? (
-        <ImageGrid imageUrls={imageUrls} />
+        <>
+          <ImageGrid imageUrls={imageUrls} />
+          {social && <SocialCard social={social} />}
+        </>
       ) : (
         <p className="mt-2 text-red-700">翻译工具未返回图片链接。</p>
       )}
@@ -153,7 +243,13 @@ function TranslateToolResult({ output, label }: { output: unknown; label: string
 }
 
 function BatchTranslateToolResult({ output, label }: { output: unknown; label?: string }) {
-  type BatchItem = { url?: string; success?: boolean; imageUrls?: string[]; error?: string };
+  type BatchItem = {
+    url?: string;
+    success?: boolean;
+    imageUrls?: string[];
+    error?: string;
+    social?: SocialContent | null;
+  };
   const items: BatchItem[] = Array.isArray(output)
     ? (output as BatchItem[])
     : (() => { try { return JSON.parse(String(output)) as BatchItem[]; } catch { return []; } })();
@@ -169,14 +265,17 @@ function BatchTranslateToolResult({ output, label }: { output: unknown; label?: 
       <summary className="cursor-pointer font-medium">
         {label ?? '批量图片翻译结果'}（{successCount}/{items.length} 成功）
       </summary>
-      <div className="mt-2 space-y-4">
+      <div className="mt-2 space-y-5">
         {items.map((item, i) => (
           <div key={item.url ?? i} className="space-y-1">
-            <p className="font-medium truncate text-emerald-800">
+            <p className="font-medium text-emerald-800">
               {item.success ? '✅' : '❌'} 图片 {i + 1}
             </p>
             {item.success && item.imageUrls && item.imageUrls.length > 0 ? (
-              <ImageGrid imageUrls={item.imageUrls} />
+              <>
+                <ImageGrid imageUrls={item.imageUrls} />
+                {item.social && <SocialCard social={item.social} index={i} />}
+              </>
             ) : !item.success ? (
               <p className="text-red-600">{item.error ?? '未知错误'}</p>
             ) : null}

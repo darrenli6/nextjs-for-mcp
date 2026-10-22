@@ -32,11 +32,17 @@ type KieTaskResponse = {
 };
 
 export type TranslationProgress = {
-  stage: 'resolving' | 'image-ready' | 'submitted' | 'polling' | 'success' | 'failed';
+  stage: 'resolving' | 'image-ready' | 'submitted' | 'polling' | 'social' | 'success' | 'failed';
   message: string;
   taskId?: string;
   attempt?: number;
   maxAttempts?: number;
+};
+
+export type SocialMediaContent = {
+  title: string;
+  description: string;
+  hashtags: string[];
 };
 
 function collectUrls(value: JsonValue, result: string[] = []) {
@@ -140,13 +146,72 @@ export function buildTranslationPrompt(targetLanguage: string) {
   return `Translate all visible text in this image into natural ${targetLanguage}. Preserve the original layout, style, font style, and visual design as closely as possible. Replace every piece of text with the ${targetLanguage} translation. Do not add any explanations or annotations.`;
 }
 
+// ── Social media content generation ──────────────────────────────────────────
+
+async function generateSocialMediaContent(
+  imageUrl: string,
+  targetLanguage: string,
+): Promise<SocialMediaContent | null> {
+  try {
+    const { text } = await generateText({
+      model: openai.chat(process.env.OPENAI_MODEL ?? 'gpt-4o-mini'),
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'image', image: imageUrl },
+            {
+              type: 'text',
+              text: `You are a social media content expert. Carefully study this image and create compelling social media content in ${targetLanguage}.
+
+Return ONLY a valid JSON object — no markdown, no extra text — with this exact structure:
+{
+  "title": "catchy engaging title (max 60 characters)",
+  "description": "2-3 sentence engaging description that hooks the audience and highlights key value",
+  "hashtags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7", "tag8"]
+}
+
+Rules:
+- ALL content (title, description, hashtags) must be written in ${targetLanguage}
+- Hashtags: relevant keywords without the # symbol, mix popular and niche tags
+- Title: attention-grabbing, not a question, no emojis
+- Description: vivid, benefit-focused, include a subtle call-to-action`,
+            },
+          ],
+        },
+      ],
+    });
+
+    const match = text.match(/\{[\s\S]*?\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]) as Partial<SocialMediaContent>;
+    if (!parsed.title || !parsed.description || !Array.isArray(parsed.hashtags)) return null;
+    return parsed as SocialMediaContent;
+  } catch (err) {
+    console.error('[Social] generateSocialMediaContent failed:', err);
+    return null;
+  }
+}
+
 export async function translateImageToLanguage(
   sourceUrl: string,
   prompt?: string,
   onProgress?: (progress: TranslationProgress) => void,
   targetLanguage = 'Simplified Chinese',
 ) {
-  return translateImageToChinese(sourceUrl, prompt ?? buildTranslationPrompt(targetLanguage), onProgress);
+  // Run KIE translation first
+  const translationResult = await translateImageToChinese(
+    sourceUrl,
+    prompt ?? buildTranslationPrompt(targetLanguage),
+    onProgress,
+  );
+
+  // Then generate social media content using the resolved input image
+  onProgress?.({ stage: 'social', message: '正在生成社媒标题 / 描述 / Hashtag…' });
+  const social = await generateSocialMediaContent(translationResult.inputImageUrl, targetLanguage);
+  onProgress?.({ stage: 'success', message: '翻译 + 社媒内容已完成。' });
+
+  return { ...translationResult, social };
 }
 
 export async function translateImageToChinese(
@@ -267,7 +332,7 @@ export async function translateImageToChinese(
         resultUrls: payload.data.resultUrls,
       });
 
-      onProgress?.({ stage: 'success', message: '中文图片已生成。', taskId });
+      onProgress?.({ stage: 'success', message: '翻译图片已生成。', taskId });
       return {
         taskId,
         state,
