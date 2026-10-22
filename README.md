@@ -204,3 +204,4 @@ The project already includes a `get_social_transcript` tool. It accepts a URL an
 - [AI SDK Documentation](https://ai-sdk.dev/docs)
 - [Next.js MCP Documentation](https://nextjs.org/docs/app/guides/mcp)
 
+
