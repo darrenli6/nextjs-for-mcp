@@ -13,6 +13,8 @@
   "dependencies": {
     "@ai-sdk/openai": "^4.0.69",
     "@ai-sdk/react": "^4.0.108",
+    "@aws-sdk/client-s3": "^3.1155.0",
+    "@aws-sdk/s3-request-presigner": "^3.1155.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@prisma/client": "^6.19.3",
     "@supadata/js": "^1.4.0",

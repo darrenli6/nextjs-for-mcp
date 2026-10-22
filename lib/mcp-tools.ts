@@ -136,9 +136,22 @@ function kieHeaders() {
   };
 }
 
+export function buildTranslationPrompt(targetLanguage: string) {
+  return `Translate all visible text in this image into natural ${targetLanguage}. Preserve the original layout, style, font style, and visual design as closely as possible. Replace every piece of text with the ${targetLanguage} translation. Do not add any explanations or annotations.`;
+}
+
+export async function translateImageToLanguage(
+  sourceUrl: string,
+  prompt?: string,
+  onProgress?: (progress: TranslationProgress) => void,
+  targetLanguage = 'Simplified Chinese',
+) {
+  return translateImageToChinese(sourceUrl, prompt ?? buildTranslationPrompt(targetLanguage), onProgress);
+}
+
 export async function translateImageToChinese(
   sourceUrl: string,
-  prompt = 'Translate all visible text in this image into natural Simplified Chinese. Preserve the original layout, style, and visual design. Replace the original text with Chinese and do not add explanations.',
+  prompt = buildTranslationPrompt('Simplified Chinese'),
   onProgress?: (progress: TranslationProgress) => void,
 ) {
   onProgress?.({ stage: 'resolving', message: '正在通过 ZM 解析社媒资源…' });
@@ -419,6 +432,53 @@ export function createMcpTools(
         urls.map((url) => translateImageToChinese(url, prompt, onTranslationProgress)),
       );
 
+      return results.map((r, i) =>
+        r.status === 'fulfilled'
+          ? { url: urls[i], success: true, ...r.value }
+          : { url: urls[i], success: false, error: String((r as PromiseRejectedResult).reason) },
+      );
+    },
+  }),
+
+  // Language-aware translation tools (support any target language)
+  translate_image_to_language: tool({
+    description:
+      'Translate visible text in a single image to any specified target language using KIE gpt-image-2. Accepts a direct S3/public image URL. Use this for single-image translation.',
+    inputSchema: z.object({
+      url: z.string().url().describe('Direct public or pre-signed image URL'),
+      targetLanguage: z
+        .string()
+        .describe('Target language, e.g. "English", "Japanese", "Korean", "French", "Simplified Chinese"'),
+      prompt: z
+        .string()
+        .optional()
+        .describe('Optional custom prompt override; if omitted a default translation prompt is used'),
+    }),
+    execute: async ({ url, targetLanguage, prompt }) =>
+      translateImageToLanguage(url, prompt, onTranslationProgress, targetLanguage),
+  }),
+
+  batch_translate_images: tool({
+    description:
+      'Translate visible text in multiple images to any specified target language using KIE gpt-image-2. Accepts a list of direct public or pre-signed image URLs (max 20). Use this when the user provides multiple images.',
+    inputSchema: z.object({
+      urls: z
+        .array(z.string().url())
+        .min(1)
+        .max(20)
+        .describe('List of direct public or pre-signed image URLs (max 20)'),
+      targetLanguage: z
+        .string()
+        .describe('Target language, e.g. "English", "Japanese", "Korean", "French", "Simplified Chinese"'),
+      prompt: z
+        .string()
+        .optional()
+        .describe('Optional custom prompt override; if omitted a default translation prompt is used'),
+    }),
+    execute: async ({ urls, targetLanguage, prompt }) => {
+      const results = await Promise.allSettled(
+        urls.map((url) => translateImageToLanguage(url, prompt, onTranslationProgress, targetLanguage)),
+      );
       return results.map((r, i) =>
         r.status === 'fulfilled'
           ? { url: urls[i], success: true, ...r.value }

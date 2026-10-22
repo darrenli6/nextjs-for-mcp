@@ -152,13 +152,14 @@ function TranslateToolResult({ output, label }: { output: unknown; label: string
   );
 }
 
-function BatchTranslateToolResult({ output }: { output: unknown }) {
+function BatchTranslateToolResult({ output, label }: { output: unknown; label?: string }) {
   type BatchItem = { url?: string; success?: boolean; imageUrls?: string[]; error?: string };
   const items: BatchItem[] = Array.isArray(output)
     ? (output as BatchItem[])
     : (() => { try { return JSON.parse(String(output)) as BatchItem[]; } catch { return []; } })();
 
   if (items.length === 0) return null;
+  const successCount = items.filter((i) => i.success).length;
 
   return (
     <details
@@ -166,13 +167,13 @@ function BatchTranslateToolResult({ output }: { output: unknown }) {
       open
     >
       <summary className="cursor-pointer font-medium">
-        批量中文图片结果（{items.filter((i) => i.success).length}/{items.length} 成功）
+        {label ?? '批量图片翻译结果'}（{successCount}/{items.length} 成功）
       </summary>
       <div className="mt-2 space-y-4">
         {items.map((item, i) => (
           <div key={item.url ?? i} className="space-y-1">
             <p className="font-medium truncate text-emerald-800">
-              {item.success ? '✅' : '❌'} {item.url}
+              {item.success ? '✅' : '❌'} 图片 {i + 1}
             </p>
             {item.success && item.imageUrls && item.imageUrls.length > 0 ? (
               <ImageGrid imageUrls={item.imageUrls} />
@@ -231,10 +232,10 @@ function MessageBubble({
           return isUser ? <p key={index} className="break-words">{part.text}</p> : null;
         }
         if (part.type === 'data-translation-progress') return null;
-        if (part.type === 'tool-translate_image_to_chinese') {
-          return <TranslateToolResult key={index} output={part.output} label="中文图片结果" />;
+        if (part.type === 'tool-translate_image_to_chinese' || part.type === 'tool-translate_image_to_language') {
+          return <TranslateToolResult key={index} output={part.output} label="图片翻译结果" />;
         }
-        if (part.type === 'tool-batch_translate_images_to_chinese') {
+        if (part.type === 'tool-batch_translate_images_to_chinese' || part.type === 'tool-batch_translate_images') {
           return <BatchTranslateToolResult key={index} output={part.output} />;
         }
         if (part.type.startsWith('tool-')) {
@@ -429,6 +430,38 @@ function SidebarContent({
   );
 }
 
+// ─── Pending image type ───────────────────────────────────────────────────────
+
+type PendingImage = {
+  id: string;
+  previewUrl: string;   // local object URL for preview
+  s3Url: string | null; // URL returned after upload
+  uploading: boolean;
+  error: string | null;
+};
+
+const LANGUAGES = [
+  { label: '简体中文', value: 'Simplified Chinese' },
+  { label: '繁体中文', value: 'Traditional Chinese' },
+  { label: 'English', value: 'English' },
+  { label: '日本語', value: 'Japanese' },
+  { label: '한국어', value: 'Korean' },
+  { label: 'Français', value: 'French' },
+  { label: 'Español', value: 'Spanish' },
+  { label: 'Deutsch', value: 'German' },
+  { label: 'العربية', value: 'Arabic' },
+  { label: 'Português', value: 'Portuguese' },
+];
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -443,8 +476,11 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyView, setHistoryView] = useState<HistoryEntry | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const [targetLanguage, setTargetLanguage] = useState('Simplified Chinese');
   const sessionIdRef = useRef<string>(crypto.randomUUID());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setHistory(loadHistory());
@@ -497,12 +533,99 @@ export default function Home() {
     window.dispatchEvent(new Event('access-token-change'));
   }
 
+  // Upload one image file to S3 and update its entry in pendingImages
+  async function uploadImageToS3(imageId: string, file: File) {
+    setPendingImages((prev) =>
+      prev.map((img) => (img.id === imageId ? { ...img, uploading: true, error: null } : img)),
+    );
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ dataUrl, filename: file.name }),
+      });
+      const json = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !json.url) throw new Error(json.error ?? `Upload failed (${res.status})`);
+      setPendingImages((prev) =>
+        prev.map((img) =>
+          img.id === imageId ? { ...img, uploading: false, s3Url: json.url! } : img,
+        ),
+      );
+    } catch (err) {
+      setPendingImages((prev) =>
+        prev.map((img) =>
+          img.id === imageId ? { ...img, uploading: false, error: String(err) } : img,
+        ),
+      );
+    }
+  }
+
+  function addFiles(files: File[]) {
+    const imageFiles = files.filter((f) => f.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+    const newImages: PendingImage[] = imageFiles.map((file) => ({
+      id: crypto.randomUUID(),
+      previewUrl: URL.createObjectURL(file),
+      s3Url: null,
+      uploading: false,
+      error: null,
+    }));
+    setPendingImages((prev) => [...prev, ...newImages]);
+    newImages.forEach((img, i) => uploadImageToS3(img.id, imageFiles[i]));
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const files = Array.from(e.clipboardData.items)
+      .filter((item) => item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (files.length === 0) return;
+    e.preventDefault();
+    addFiles(files);
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!e.target.files) return;
+    addFiles(Array.from(e.target.files));
+    e.target.value = '';
+  }
+
+  function removeImage(id: string) {
+    setPendingImages((prev) => {
+      const img = prev.find((i) => i.id === id);
+      if (img) URL.revokeObjectURL(img.previewUrl);
+      return prev.filter((i) => i.id !== id);
+    });
+  }
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    if (!input.trim() || isLoading || !accessToken) return;
+    const readyImages = pendingImages.filter((img) => img.s3Url);
+    const hasImages = readyImages.length > 0;
+    if ((!input.trim() && !hasImages) || isLoading || !accessToken) return;
+
     setHistoryView(null);
-    sendMessage({ text: input });
+
+    let messageText = input.trim();
+
+    if (hasImages) {
+      const langLabel = LANGUAGES.find((l) => l.value === targetLanguage)?.label ?? targetLanguage;
+      const urlList = readyImages.map((img, i) => `图片${i + 1}: ${img.s3Url}`).join('\n');
+      const instruction = `请将以下 ${readyImages.length} 张图片中的文字翻译成${langLabel}（targetLanguage: ${targetLanguage}）。`;
+      messageText = messageText
+        ? `${instruction}\n用户备注：${messageText}\n\n${urlList}`
+        : `${instruction}\n\n${urlList}`;
+    }
+
+    sendMessage({ text: messageText });
     setInput('');
+    // Cleanup preview URLs
+    pendingImages.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+    setPendingImages([]);
   }
 
   async function handleCopy(id: string, text: string) {
@@ -537,6 +660,8 @@ export default function Home() {
   }
 
   const displayedMessages = (historyView ? historyView.messages : messages) as UIMessage[];
+  const hasReadyImages = pendingImages.some((img) => img.s3Url);
+  const isUploading = pendingImages.some((img) => img.uploading);
 
   return (
     <div className="flex h-screen overflow-hidden bg-white">
@@ -673,38 +798,138 @@ export default function Home() {
         {!historyView && (
           <form
             onSubmit={handleSubmit}
-            className="shrink-0 flex items-end gap-2 border-t border-gray-200 bg-white px-3 py-3 sm:px-4 sm:py-3"
+            onPaste={handlePaste}
+            className="shrink-0 flex flex-col gap-2 border-t border-gray-200 bg-white px-3 py-3 sm:px-4 sm:py-3"
           >
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (!isLoading && accessToken && input.trim()) {
-                    handleSubmit(e as unknown as React.FormEvent);
-                  }
-                }
-              }}
-              placeholder="输入消息… (Enter 发送，Shift+Enter 换行)"
-              rows={1}
-              className="flex-1 resize-none rounded-xl border border-gray-300 px-3 py-2.5 text-sm
-                         focus:outline-none focus:ring-2 focus:ring-blue-400
-                         disabled:bg-gray-50 disabled:text-gray-400
-                         max-h-32 overflow-y-auto"
-              disabled={isLoading || !accessToken}
-              style={{ lineHeight: '1.5' }}
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
             />
-            <button
-              type="submit"
-              disabled={isLoading || !accessToken || !input.trim()}
-              className="shrink-0 rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-medium text-white
-                         hover:bg-blue-600 active:bg-blue-700
-                         disabled:opacity-40 disabled:cursor-not-allowed
-                         transition-colors"
-            >
-              发送
-            </button>
+
+            {/* Image previews */}
+            {pendingImages.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {pendingImages.map((img) => (
+                  <div key={img.id} className="relative w-16 h-16 shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={img.previewUrl}
+                      alt="pending"
+                      className={`w-full h-full rounded-lg object-cover border-2 ${
+                        img.error ? 'border-red-400' : img.s3Url ? 'border-emerald-400' : 'border-blue-300'
+                      }`}
+                    />
+                    {img.uploading && (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/40">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      </div>
+                    )}
+                    {img.s3Url && !img.uploading && (
+                      <div className="absolute bottom-0.5 right-0.5 rounded-full bg-emerald-500 p-0.5">
+                        <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    )}
+                    {img.error && (
+                      <div className="absolute bottom-0.5 right-0.5 rounded-full bg-red-500 px-1 text-[9px] text-white">!</div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeImage(img.id)}
+                      className="absolute -top-1.5 -right-1.5 rounded-full bg-gray-700 p-0.5 text-white hover:bg-red-600"
+                      title="移除"
+                    >
+                      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Language selector — visible when images are pending */}
+            {pendingImages.length > 0 && (
+              <div className="flex items-center gap-2 text-xs text-gray-600">
+                <span className="shrink-0">翻译语言：</span>
+                <select
+                  value={targetLanguage}
+                  onChange={(e) => setTargetLanguage(e.target.value)}
+                  className="rounded-lg border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                  disabled={isLoading}
+                >
+                  {LANGUAGES.map((lang) => (
+                    <option key={lang.value} value={lang.value}>{lang.label}</option>
+                  ))}
+                </select>
+                {isUploading && (
+                  <span className="text-blue-500 flex items-center gap-1">
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-300 border-t-blue-600" />
+                    上传中…
+                  </span>
+                )}
+                {hasReadyImages && !isUploading && (
+                  <span className="text-emerald-600">{pendingImages.filter(i => i.s3Url).length} 张已上传到 S3</span>
+                )}
+              </div>
+            )}
+
+            {/* Text input row */}
+            <div className="flex items-end gap-2">
+              {/* Upload button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading || !accessToken}
+                title="上传图片"
+                className="shrink-0 rounded-xl border border-gray-300 p-2.5 text-gray-500
+                           hover:bg-gray-100 active:bg-gray-200
+                           disabled:opacity-40 disabled:cursor-not-allowed
+                           transition-colors"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              </button>
+
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    const readyImages = pendingImages.filter((img) => img.s3Url);
+                    if (!isLoading && accessToken && (input.trim() || readyImages.length > 0)) {
+                      handleSubmit(e as unknown as React.FormEvent);
+                    }
+                  }
+                }}
+                placeholder={pendingImages.length > 0 ? '可选：补充说明（Enter 发送）' : '输入消息… 或粘贴图片 (Enter 发送，Shift+Enter 换行)'}
+                rows={1}
+                className="flex-1 resize-none rounded-xl border border-gray-300 px-3 py-2.5 text-sm
+                           focus:outline-none focus:ring-2 focus:ring-blue-400
+                           disabled:bg-gray-50 disabled:text-gray-400
+                           max-h-32 overflow-y-auto"
+                disabled={isLoading || !accessToken}
+                style={{ lineHeight: '1.5' }}
+              />
+              <button
+                type="submit"
+                disabled={isLoading || !accessToken || (!input.trim() && !hasReadyImages) || isUploading}
+                className="shrink-0 rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-medium text-white
+                           hover:bg-blue-600 active:bg-blue-700
+                           disabled:opacity-40 disabled:cursor-not-allowed
+                           transition-colors"
+              >
+                发送
+              </button>
+            </div>
           </form>
         )}
       </div>
